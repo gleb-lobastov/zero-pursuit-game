@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!-- Yandex.Metrika counter -->
+    <script type="text/javascript" >
+       (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+       m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+       (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+
+       ym(55248328, "init", {
+            clickmap:true,
+            trackLinks:true,
+            accurateTrackBounce:true
+       });
+    </script>
+    <noscript><div><img src="https://mc.yandex.ru/watch/55248328" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+    <!-- /Yandex.Metrika counter -->
+    <script type="text/javascript">
+      const KEY_SPACE = 32;
+      const KEY_LEFT = 37;
+      const KEY_UP = 38;
+      const KEY_RIGHT = 39;
+      const KEY_DOWN = 40;
+
+      const AREA_SIZE = { HEIGHT: 30, WIDTH: 80 };
+
+      const PLAYER_CHAR = ".";
+      const LEFT_STRIKE_CHAR = "-";
+      const RIGHT_STRIKE_CHAR = "-";
+      const UP_STRIKE_CHAR = "|";
+      const DOWN_STRIKE_CHAR = "|";
+      const BORDER_CHAR = "/";
+      const BORDER = Array(AREA_SIZE.WIDTH + 2).join(BORDER_CHAR);
+
+      const MECHANIC = {
+        MAX_HEALTH: 100,
+        TICK_TIME: 100,
+        MAX_ENERGY: 100,
+        STRIKE_ENERGY_COST: 9,
+        ENERGY_REGAIN_BY_TICK: 2,
+        MAX_ENEMIES_COUNT: 100,
+        MAX_ENEMY_STRENGTH: 9,
+        MAX_ENEMIES_IN_COMBO_BONUS: 5,
+        GRANT_SCORE_PROBABILITY: 0.1,
+        ENEMY_SPAWN_PROBABILITY: 0.2,
+        ENEMY_MOVE_PROBABILITY: 0.25,
+        MERGE_DISTANCE_THRESHOLD: 1,
+        SPAWN_TO_PLAYER_DISTANCE_THRESHOLD: 3
+      };
+
+      const FEATURES = {
+        SHOULD_ENEMIES_MERGE: true,
+        SHOULD_ENEMIES_MOVE: true,
+        SHOULD_ENEMIES_EAT_PLAYER: true,
+        SHOULD_ENEMIES_SPAWN: true
+      };
+
+      const statistic = {
+        shootCount: 0,
+        handlePlayerShootEnemy(strength = 0) {
+          this.shootCount += 1;
+        }
+      };
+
+      let gameState = {
+        health: MECHANIC.MAX_HEALTH,
+        score: 0,
+        player: { x: AREA_SIZE.WIDTH / 2, y: AREA_SIZE.HEIGHT / 2 },
+        enemiesList: [],
+        energy: MECHANIC.MAX_ENERGY
+      };
+
+      const tick = flow(
+        getGameState,
+        gameFlow(
+          eatPlayerIfPossible,
+          mergeEnemies,
+          moveEnemies,
+          probablySpawnEnemy,
+          regainEnergy,
+          increaseScore
+        ),
+        setGameState
+      );
+
+      const handleKeyDown = flow(
+        getGameStateWithEvent,
+        updateKeyState,
+        gameFlow(applyStrike, movePlayer),
+        setGameState
+      );
+
+      const handleKeyUp = flow(
+        getGameState,
+        gameFlow(resetStrike),
+        setGameState
+      );
+
+      function gameFlow(...funcs) {
+        const composedFunc = flow(...funcs);
+        return function(gameState) {
+          const { health } = gameState;
+          if (health > 0) {
+            return composedFunc(gameState);
+          }
+          return { ...gameState, isGameOver: true };
+        };
+      }
+
+      document.addEventListener("DOMContentLoaded", initGame);
+      document.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("keyup", handleKeyUp);
+
+      function initGame() {
+        setInterval(tick, MECHANIC.TICK_TIME);
+        render(gameState);
+      }
+
+      function getGameState() {
+        return gameState;
+      }
+
+      function getGameStateWithEvent(event) {
+        const gameState = getGameState();
+        if (!event) {
+          return gameState;
+        }
+        return { ...gameState, event };
+      }
+
+      function setGameState(nextGameState) {
+        if (nextGameState === gameState) {
+          return;
+        }
+        gameState = nextGameState;
+        render(nextGameState);
+      }
+
+      function eatPlayerIfPossible(gameState) {
+        if (!FEATURES.SHOULD_ENEMIES_EAT_PLAYER) {
+          return gameState;
+        }
+        const { player, health, enemiesList } = gameState;
+        let eatenCount = 0;
+        const nextEnemiesList = enemiesList.reduce((memo, enemy, index) => {
+          if (checkIsInSamePosition(player, enemy)) {
+            eatenCount += enemy.strength + 1;
+          } else {
+            memo.push(enemy);
+          }
+          return memo;
+        }, []);
+        return {
+          ...gameState,
+          health: Math.max(health - eatenCount, 0),
+          isEaten: Boolean(eatenCount),
+          enemiesList: nextEnemiesList
+        };
+      }
+
+      function mergeEnemies(gameState) {
+        if (!FEATURES.SHOULD_ENEMIES_MERGE) {
+          return gameState;
+        }
+        const { player, enemiesList } = gameState;
+        return {
+          ...gameState,
+          enemiesList: enemiesList
+            .sort(sortByPosition)
+            .reduce((memo, enemy, index) => {
+              if (index === 0) {
+                memo.push(enemy);
+                return memo;
+              }
+
+              const lastEnemy = memo[memo.length - 1];
+              const isEnemiesInSamePosition = checkIsInSamePosition(
+                enemy,
+                lastEnemy,
+                {
+                  threshold: MECHANIC.MERGE_DISTANCE_THRESHOLD
+                }
+              );
+              if (isEnemiesInSamePosition) {
+                const mergedStrength = lastEnemy.strength + enemy.strength + 1;
+                if (mergedStrength <= MECHANIC.MAX_ENEMY_STRENGTH) {
+                  const mergedEnemy = {
+                    x: lastEnemy.x,
+                    y: lastEnemy.y,
+                    strength: Math.min(
+                      MECHANIC.MAX_ENEMY_STRENGTH,
+                      mergedStrength
+                    )
+                  };
+                  memo[memo.length - 1] = mergedEnemy;
+                }
+              } else {
+                memo.push(enemy);
+              }
+              return memo;
+            }, [])
+        };
+      }
+
+      function moveEnemies(gameState) {
+        if (!FEATURES.SHOULD_ENEMIES_MOVE) {
+          return gameState;
+        }
+        const { player, enemiesList } = gameState;
+        return {
+          ...gameState,
+          enemiesList: enemiesList.map(enemy => {
+            if (!checkIsHappens(MECHANIC.ENEMY_MOVE_PROBABILITY)) {
+              return enemy;
+            }
+            const dx = Math.sign(player.x - enemy.x) || rnd(2) || -1;
+            const dy = Math.sign(player.y - enemy.y) || rnd(2) || -1;
+            const shouldMoveBoth = checkIsHappens(0.5);
+            const shouldMoveX = shouldMoveBoth || checkIsHappens(0.5);
+            const shouldMoveY = shouldMoveBoth || !shouldMoveX;
+            return {
+              x: shouldMoveX ? enemy.x + dx : enemy.x,
+              y: shouldMoveY ? enemy.y + dy : enemy.y,
+              strength: enemy.strength
+            };
+          }, [])
+        };
+      }
+
+      function probablySpawnEnemy(gameState) {
+        if (!FEATURES.SHOULD_ENEMIES_SPAWN) {
+          return gameState;
+        }
+        const { enemiesList, player } = gameState;
+
+        if (
+          enemiesList.length < MECHANIC.MAX_ENEMIES_COUNT &&
+          checkIsHappens(MECHANIC.ENEMY_SPAWN_PROBABILITY)
+        ) {
+          const spawnedEnemy = {
+            x: rnd(AREA_SIZE.WIDTH),
+            y: rnd(AREA_SIZE.HEIGHT),
+            strength: 0
+          };
+          if (
+            !checkIsInSamePosition(spawnedEnemy, player, {
+              threshold: MECHANIC.SPAWN_TO_PLAYER_DISTANCE_THRESHOLD
+            })
+          ) {
+            return {
+              ...gameState,
+              enemiesList: [...enemiesList, spawnedEnemy]
+            };
+          }
+        }
+        return gameState;
+      }
+
+      function regainEnergy(gameState) {
+        const { energy } = gameState;
+        if (energy >= MECHANIC.MAX_ENERGY) {
+          return gameState;
+        }
+        return {
+          ...gameState,
+          energy: Math.min(
+            MECHANIC.MAX_ENERGY,
+            energy + MECHANIC.ENERGY_REGAIN_BY_TICK
+          )
+        };
+      }
+
+      function increaseScore(gameState) {
+        const { score } = gameState;
+        if (checkIsHappens(MECHANIC.GRANT_SCORE_PROBABILITY)) {
+          return { ...gameState, score: score + 1 };
+        }
+        return gameState;
+      }
+
+      function updateKeyState({ event, ...gameState }) {
+        let moveDirection = null;
+        let strikeDirection = null;
+        if ([KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT].includes(event.keyCode)) {
+          moveDirection = event.keyCode;
+          if (event.shiftKey) {
+            strikeDirection = event.keyCode;
+          }
+        }
+        return { ...gameState, moveDirection, strikeDirection };
+      }
+
+      function applyStrike(gameState) {
+        const {
+          enemiesList,
+          player,
+          score,
+          strikeDirection,
+          energy
+        } = gameState;
+        if (!strikeDirection) {
+          return gameState;
+        }
+        if (energy < MECHANIC.STRIKE_ENERGY_COST) {
+          return resetStrike({ gameState, energy: 0 });
+        }
+        let hitCount = 0;
+        return {
+          ...gameState,
+          energy: energy - MECHANIC.STRIKE_ENERGY_COST,
+          enemiesList: enemiesList.reduce((memo, enemy) => {
+            let isEnemyHit;
+            if (strikeDirection === KEY_UP) {
+              isEnemyHit = player.x === enemy.x && player.y > enemy.y;
+            } else if (strikeDirection === KEY_DOWN) {
+              isEnemyHit = player.x === enemy.x && player.y < enemy.y;
+            } else if (strikeDirection === KEY_RIGHT) {
+              isEnemyHit = player.y === enemy.y && player.x < enemy.x;
+            } else if (strikeDirection === KEY_LEFT) {
+              isEnemyHit = player.y === enemy.y && player.x > enemy.x;
+            }
+            if (isEnemyHit) {
+              hitCount += 1;
+              if (enemy.strength > 0) {
+                memo.push({
+                  ...enemy,
+                  strength: enemy.strength - 1
+                });
+              } else {
+                statistic.handlePlayerShootEnemy();
+              }
+            } else {
+              memo.push(enemy);
+            }
+            return memo;
+          }, []),
+          score: hitCount
+            ? score +
+              2 ** Math.min(hitCount, MECHANIC.MAX_ENEMIES_IN_COMBO_BONUS)
+            : score
+        };
+      }
+
+      function movePlayer(gameState) {
+        const { player, moveDirection } = gameState;
+        let x = player.x;
+        let y = player.y;
+        switch (moveDirection) {
+          case KEY_LEFT:
+            x = player.x - 1;
+            break;
+          case KEY_RIGHT:
+            x = player.x + 1;
+            break;
+          case KEY_UP:
+            y = player.y - 1;
+            break;
+          case KEY_DOWN:
+            y = player.y + 1;
+            break;
+        }
+        return {
+          ...gameState,
+          player: {
+            ...player,
+            x: constrainValue(x, { min: 0, max: AREA_SIZE.WIDTH }),
+            y: constrainValue(y, { min: 0, max: AREA_SIZE.HEIGHT })
+          }
+        };
+      }
+
+      function resetStrike() {
+        const { strikeDirection } = gameState;
+        if (!strikeDirection) {
+          return gameState;
+        }
+        return { ...gameState, strikeDirection: null };
+      }
+
+      function render({
+        enemiesList,
+        energy,
+        health,
+        isEaten,
+        isGameOver,
+        player,
+        score,
+        strikeDirection
+      }) {
+        const rows = [];
+        for (let areaY = 0; areaY < AREA_SIZE.HEIGHT; areaY += 1) {
+          rows.push(renderRow(areaY, gameState));
+        }
+        const stats = `Подбито ${statistic.shootCount} врагов. Здоровье ${health}. Энергия лазерной пушки ${energy}. Очки ${score}`;
+        window.stats.innerHTML = stats;
+        if (!isGameOver) {
+          window.area.innerHTML = `${BORDER}\n${rows.join("\n")}\n${BORDER}`;
+        } else {
+          window.area.innerHTML = `Game Over`;
+        }
+        window.document.documentElement.style.backgroundColor =
+          isEaten && !isGameOver ? "#ffb2b2" : "white";
+      }
+
+      function renderRow(areaY, { strikeDirection, player, enemiesList }) {
+        let row = Array.from({ length: AREA_SIZE.WIDTH + 1 }).fill(" ");
+        if (areaY === player.y) {
+          row[player.x] = PLAYER_CHAR;
+          if (strikeDirection === KEY_LEFT) {
+            for (let areaX = 0; areaX < player.x; areaX++) {
+              row[areaX] = LEFT_STRIKE_CHAR;
+            }
+          } else if (strikeDirection === KEY_RIGHT) {
+            for (let areaX = player.x + 1; areaX < AREA_SIZE.WIDTH; areaX++) {
+              row[areaX] = RIGHT_STRIKE_CHAR;
+            }
+          }
+        } else if (strikeDirection === KEY_UP && areaY < player.y) {
+          row[player.x] = UP_STRIKE_CHAR;
+        } else if (strikeDirection === KEY_DOWN && areaY > player.y) {
+          row[player.x] = DOWN_STRIKE_CHAR;
+        }
+        enemiesList.forEach(enemy => {
+          if (areaY === enemy.y) {
+            row[enemy.x] = String(enemy.strength);
+          }
+        });
+        return `${BORDER_CHAR}${row.join("")}${BORDER_CHAR}`;
+      }
+
+      function constrainedRnd(maxValue, constrain, constrainSize = 3) {
+        const value = rnd(maxValue);
+        const delta = value - constrain;
+        if (Math.abs(delta) > constrainSize) {
+          return value;
+        }
+        if (delta >= 0) {
+          const proposedValue = constrain + constrainSize;
+          return proposedValue > maxValue
+            ? constrain - constrainSize
+            : proposedValue;
+        } else {
+          const proposedValue = constrain - constrainSize;
+          return proposedValue < 0 ? constrain + constrainSize : proposedValue;
+        }
+      }
+
+      function rnd(value) {
+        return Math.round(value * Math.random());
+      }
+
+      function checkIsHappens(probability) {
+        return Math.random() > 1 - probability;
+      }
+
+      function sortByPosition({ x: xA, y: yA }, { x: xB, y: yB }) {
+        return xA - xB || yA - yB;
+      }
+
+      function checkIsInSamePosition(objectA, objectB, { threshold } = {}) {
+        return (
+          checkIsSameValue(objectA.x, objectB.x, { threshold }) &&
+          checkIsSameValue(objectA.y, objectB.y, { threshold })
+        );
+      }
+
+      function checkIsSameValue(valueA, valueB, { threshold = 0 } = {}) {
+        const delta = valueA - valueB;
+        return Math.abs(delta) <= threshold;
+      }
+
+      function constrainValue(value, { min, max }) {
+        if (value < min) {
+          return min;
+        }
+        if (value > max) {
+          return max;
+        }
+        return value;
+      }
+
+      function flow(...funcs) {
+        return arg => funcs.reduce((value, func) => func(value), arg);
+      }
+    </script>
+  </head>
+  <div id="stats"></div>
+  <pre id="area"></pre>
+  <div>Ходить стрелочками, стрелять тоже стрелочками, зажав shift</div>
+</html>
