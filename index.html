@@ -46,7 +46,9 @@
         ENEMY_SPAWN_PROBABILITY: 0.4,
         ENEMY_MOVE_PROBABILITY: 0.25,
         MERGE_DISTANCE_THRESHOLD: 1,
-        SPAWN_TO_PLAYER_DISTANCE_THRESHOLD: 3
+        SPAWN_TO_PLAYER_DISTANCE_THRESHOLD: 3,
+        MAX_STUFF_ON_AREA: 3,
+        STUFF_SPAWN_PROBABILITY: 0.01
       };
 
       const FEATURES = {
@@ -63,12 +65,28 @@
         }
       };
 
+      const createHealStrategy = value => gameState =>
+        gameState.health < MECHANIC.MAX_HEALTH
+          ? {
+              health: Math.min(gameState.health + value, MECHANIC.MAX_HEALTH)
+            }
+          : null;
+
+      const STUFF = {
+        HEAL10: { chances: 10, strategy: createHealStrategy(10), char: "+" },
+        HEAL20: { chances: 5, strategy: createHealStrategy(20), char: "*" },
+        HEAL50: { chances: 1, strategy: createHealStrategy(20), char: "^" }
+      };
+
       let gameState = {
         health: MECHANIC.MAX_HEALTH,
         score: 0,
+        stuffList: [],
         player: { x: AREA_SIZE.WIDTH / 2, y: AREA_SIZE.HEIGHT / 2 },
         enemiesList: [],
-        energy: MECHANIC.MAX_ENERGY
+        energy: MECHANIC.MAX_ENERGY,
+        isPause: false,
+        isGameOver: false
       };
 
       const tick = flow(
@@ -79,7 +97,8 @@
           moveEnemies,
           probablySpawnEnemy,
           regainEnergy,
-          increaseScore
+          increaseScore,
+          spawnStuff
         ),
         setGameState
       );
@@ -87,7 +106,7 @@
       const handleKeyDown = flow(
         getGameStateWithEvent,
         updateKeyState,
-        gameFlow(applyStrike, movePlayer),
+        gameFlow(applyStrike, movePlayer, grabStuff),
         setGameState
       );
 
@@ -100,9 +119,15 @@
       function gameFlow(...funcs) {
         const composedFunc = flow(...funcs);
         return function(gameState) {
-          const { health } = gameState;
+          const { health, isPause, isGameOver } = gameState;
+          if (isPause) {
+            return gameState;
+          }
           if (health > 0) {
             return composedFunc(gameState);
+          }
+          if (isGameOver) {
+            return gameState;
           }
           return { ...gameState, isGameOver: true };
         };
@@ -135,6 +160,88 @@
         }
         gameState = nextGameState;
         render(nextGameState);
+      }
+
+      function grabStuff(gameState) {
+        const { stuffList, player } = gameState;
+
+        if (!stuffList.length) {
+          return gameState;
+        }
+
+        const gainedStuffIndex = stuffList.findIndex(item =>
+          checkIsInSamePosition(player, item)
+        );
+        if (gainedStuffIndex === -1) {
+          return gameState;
+        }
+
+        const gainedStuff = stuffList[gainedStuffIndex];
+        const stuffObject = STUFF[gainedStuff.stuffKey];
+
+        let updates;
+        if (stuffObject) {
+          const { strategy } = stuffObject;
+          updates = strategy(gameState);
+        } else {
+          warn(`missing stuff ${gainedStuff}`);
+        }
+
+        return {
+          ...gameState,
+          ...updates,
+          stuffList:
+            updates == null // means that it's not possible to grab
+              ? stuffList
+              : stuffList.filter((_, index) => index !== gainedStuffIndex)
+        };
+      }
+
+      const totalChances = Object.values(STUFF).reduce(
+        (totalChances, { chances }) => totalChances + chances,
+        0
+      );
+      const stuffLottery = Object.entries(STUFF).reduce(
+        (memo, [stuffKey, { chances }], index) => {
+          const prevChanceBound = index === 0 ? 0 : memo[index - 1].chanceBound;
+
+          memo.push({
+            stuffKey,
+            chanceBound: chances + prevChanceBound
+          });
+          return memo;
+        },
+        []
+      );
+
+      function spawnStuff(gameState) {
+        const { stuffList } = gameState;
+        if (
+          stuffList.length >= MECHANIC.MAX_STUFF_ON_AREA ||
+          !checkIsHappens(MECHANIC.STUFF_SPAWN_PROBABILITY)
+        ) {
+          return gameState;
+        }
+
+        const chance = rnd(totalChances - 1);
+        const { stuffKey } =
+          stuffLottery.find(({ chanceBound }) => chance < chanceBound) || {};
+
+        if (!stuffKey) {
+          return gameState;
+        }
+
+        return {
+          ...gameState,
+          stuffList: [
+            ...stuffList,
+            {
+              stuffKey,
+              x: rnd(AREA_SIZE.WIDTH - 1),
+              y: rnd(AREA_SIZE.HEIGHT - 1)
+            }
+          ]
+        };
       }
 
       function eatPlayerIfPossible(gameState) {
@@ -289,16 +396,21 @@
         return gameState;
       }
 
-      function updateKeyState({ event, ...gameState }) {
+      function updateKeyState({ event, isPause: wasPause, ...gameState }) {
         let moveDirection = null;
         let strikeDirection = null;
-        if ([KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT].includes(event.keyCode)) {
+        const isArrowKey = [KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT].includes(
+          event.keyCode
+        );
+        const isPause =
+          event.keyCode === KEY_SPACE ? !wasPause : !isArrowKey && wasPause;
+        if (isArrowKey) {
           moveDirection = event.keyCode;
           if (event.shiftKey) {
             strikeDirection = event.keyCode;
           }
         }
-        return { ...gameState, moveDirection, strikeDirection };
+        return { ...gameState, isPause, moveDirection, strikeDirection };
       }
 
       function applyStrike(gameState) {
@@ -413,7 +525,10 @@
           isEaten && !isGameOver ? "#ffb2b2" : "white";
       }
 
-      function renderRow(areaY, { strikeDirection, player, enemiesList }) {
+      function renderRow(
+        areaY,
+        { strikeDirection, player, enemiesList, stuffList }
+      ) {
         let row = Array.from({ length: AREA_SIZE.WIDTH }).fill(" ");
         if (areaY === player.y) {
           row[player.x] = PLAYER_CHAR;
@@ -434,6 +549,12 @@
         enemiesList.forEach(enemy => {
           if (areaY === enemy.y) {
             row[enemy.x] = String(enemy.strength);
+          }
+        });
+        stuffList.forEach(item => {
+          const stuff = STUFF[item.stuffKey];
+          if (stuff && areaY === item.y) {
+            row[item.x] = stuff.char;
           }
         });
         return `${BORDER_CHAR}${row.join("")}${BORDER_CHAR}`;
@@ -493,9 +614,15 @@
       function flow(...funcs) {
         return arg => funcs.reduce((value, func) => func(value), arg);
       }
+
+      function warn(message) {
+        console.warn(message);
+      }
     </script>
   </head>
   <div id="stats"></div>
   <pre id="area"></pre>
-  <div>Ходить стрелочками, стрелять тоже стрелочками, зажав shift</div>
+  <div>
+    Ходить стрелочками, стрелять тоже стрелочками, зажав shift. Пауза - пробел
+  </div>
 </html>
