@@ -194,10 +194,10 @@
                     )
                   };
                   memo[memo.length - 1] = mergedEnemy;
+                  return memo;
                 }
-              } else {
-                memo.push(enemy);
               }
+              memo.push(enemy);
               return memo;
             }, [])
         };
