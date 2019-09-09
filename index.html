@@ -31,7 +31,7 @@
       const UP_STRIKE_CHAR = "|";
       const DOWN_STRIKE_CHAR = "|";
       const BORDER_CHAR = "/";
-      const BORDER = Array(AREA_SIZE.WIDTH + 2).join(BORDER_CHAR);
+      const BORDER = Array(AREA_SIZE.WIDTH + 2 + 1).join(BORDER_CHAR);
 
       const MECHANIC = {
         MAX_HEALTH: 100,
@@ -43,7 +43,7 @@
         MAX_ENEMY_STRENGTH: 9,
         MAX_ENEMIES_IN_COMBO_BONUS: 5,
         GRANT_SCORE_PROBABILITY: 0.1,
-        ENEMY_SPAWN_PROBABILITY: 0.2,
+        ENEMY_SPAWN_PROBABILITY: 0.4,
         ENEMY_MOVE_PROBABILITY: 0.25,
         MERGE_DISTANCE_THRESHOLD: 1,
         SPAWN_TO_PLAYER_DISTANCE_THRESHOLD: 3
@@ -220,8 +220,18 @@
             const shouldMoveX = shouldMoveBoth || checkIsHappens(0.5);
             const shouldMoveY = shouldMoveBoth || !shouldMoveX;
             return {
-              x: shouldMoveX ? enemy.x + dx : enemy.x,
-              y: shouldMoveY ? enemy.y + dy : enemy.y,
+              x: shouldMoveX
+                ? constrainValue(enemy.x + dx, {
+                    min: 0,
+                    max: AREA_SIZE.WIDTH - 1
+                  })
+                : enemy.x,
+              y: shouldMoveY
+                ? constrainValue(enemy.y + dy, {
+                    min: 0,
+                    max: AREA_SIZE.HEIGHT - 1
+                  })
+                : enemy.y,
               strength: enemy.strength
             };
           }, [])
@@ -239,8 +249,8 @@
           checkIsHappens(MECHANIC.ENEMY_SPAWN_PROBABILITY)
         ) {
           const spawnedEnemy = {
-            x: rnd(AREA_SIZE.WIDTH),
-            y: rnd(AREA_SIZE.HEIGHT),
+            x: rnd(AREA_SIZE.WIDTH - 1),
+            y: rnd(AREA_SIZE.HEIGHT - 1),
             strength: 0
           };
           if (
@@ -364,8 +374,8 @@
           ...gameState,
           player: {
             ...player,
-            x: constrainValue(x, { min: 0, max: AREA_SIZE.WIDTH }),
-            y: constrainValue(y, { min: 0, max: AREA_SIZE.HEIGHT })
+            x: constrainValue(x, { min: 0, max: AREA_SIZE.WIDTH - 1 }),
+            y: constrainValue(y, { min: 0, max: AREA_SIZE.HEIGHT - 1 })
           }
         };
       }
@@ -404,7 +414,7 @@
       }
 
       function renderRow(areaY, { strikeDirection, player, enemiesList }) {
-        let row = Array.from({ length: AREA_SIZE.WIDTH + 1 }).fill(" ");
+        let row = Array.from({ length: AREA_SIZE.WIDTH }).fill(" ");
         if (areaY === player.y) {
           row[player.x] = PLAYER_CHAR;
           if (strikeDirection === KEY_LEFT) {
