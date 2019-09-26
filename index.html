@@ -3,18 +3,41 @@
   <head>
     <meta charset="utf-8" />
     <!-- Yandex.Metrika counter -->
-    <script type="text/javascript" >
-       (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
-       m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
-       (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+    <script type="text/javascript">
+      (function(m, e, t, r, i, k, a) {
+        m[i] =
+          m[i] ||
+          function() {
+            (m[i].a = m[i].a || []).push(arguments);
+          };
+        m[i].l = 1 * new Date();
+        (k = e.createElement(t)),
+          (a = e.getElementsByTagName(t)[0]),
+          (k.async = 1),
+          (k.src = r),
+          a.parentNode.insertBefore(k, a);
+      })(
+        window,
+        document,
+        "script",
+        "https://mc.yandex.ru/metrika/tag.js",
+        "ym"
+      );
 
-       ym(55248328, "init", {
-            clickmap:true,
-            trackLinks:true,
-            accurateTrackBounce:true
-       });
+      ym(55248328, "init", {
+        clickmap: true,
+        trackLinks: true,
+        accurateTrackBounce: true
+      });
     </script>
-    <noscript><div><img src="https://mc.yandex.ru/watch/55248328" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+    <noscript
+      ><div>
+        <img
+          src="https://mc.yandex.ru/watch/55248328"
+          style="position:absolute; left:-9999px;"
+          alt=""
+        /></div
+    ></noscript>
     <!-- /Yandex.Metrika counter -->
     <script type="text/javascript">
       const KEY_SPACE = 32;
@@ -85,7 +108,8 @@
         player: { x: AREA_SIZE.WIDTH / 2, y: AREA_SIZE.HEIGHT / 2 },
         enemiesList: [],
         energy: MECHANIC.MAX_ENERGY,
-        isPause: false,
+        isPause: true,
+        isGameStarted: false,
         isGameOver: false
       };
 
@@ -396,7 +420,12 @@
         return gameState;
       }
 
-      function updateKeyState({ event, isPause: wasPause, ...gameState }) {
+      function updateKeyState({
+        event,
+        isGameStarted,
+        isPause: wasPause,
+        ...gameState
+      }) {
         let moveDirection = null;
         let strikeDirection = null;
         const isArrowKey = [KEY_UP, KEY_DOWN, KEY_RIGHT, KEY_LEFT].includes(
@@ -410,7 +439,13 @@
             strikeDirection = event.keyCode;
           }
         }
-        return { ...gameState, isPause, moveDirection, strikeDirection };
+        return {
+          ...gameState,
+          isGameStarted: isGameStarted || !isPause,
+          isPause,
+          moveDirection,
+          strikeDirection
+        };
       }
 
       function applyStrike(gameState) {
@@ -505,6 +540,7 @@
         energy,
         health,
         isEaten,
+        isGameStarted,
         isGameOver,
         player,
         score,
@@ -514,7 +550,9 @@
         for (let areaY = 0; areaY < AREA_SIZE.HEIGHT; areaY += 1) {
           rows.push(renderRow(areaY, gameState));
         }
-        const stats = `Подбито ${statistic.shootCount} врагов. Здоровье ${health}. Энергия лазерной пушки ${energy}. Очки ${score}`;
+        const stats = isGameStarted
+          ? `Подбито ${statistic.shootCount} врагов. Здоровье ${health}. Энергия лазерной пушки ${energy}. Очки ${score}`
+          : "Для начала нажмите пробел";
         window.stats.innerHTML = stats;
         if (!isGameOver) {
           window.area.innerHTML = `${BORDER}\n${rows.join("\n")}\n${BORDER}`;
