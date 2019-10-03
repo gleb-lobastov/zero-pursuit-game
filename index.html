@@ -57,21 +57,23 @@
       const BORDER = Array(AREA_SIZE.WIDTH + 2 + 1).join(BORDER_CHAR);
 
       const MECHANIC = {
+        MIN_LEVEL: 1,
+        MAX_LEVEL: 5,
         MAX_HEALTH: 100,
         TICK_TIME: 100,
         MAX_ENERGY: 100,
-        STRIKE_ENERGY_COST: 9,
+        STRIKE_ENERGY_COST: 10,
         ENERGY_REGAIN_BY_TICK: 2,
         MAX_ENEMIES_COUNT: 100,
         MAX_ENEMY_STRENGTH: 9,
         MAX_ENEMIES_IN_COMBO_BONUS: 5,
         GRANT_SCORE_PROBABILITY: 0.1,
-        ENEMY_SPAWN_PROBABILITY: 0.4,
-        ENEMY_MOVE_PROBABILITY: 0.4,
+        ENEMY_SPAWN_PROBABILITY: 0.3,
+        ENEMY_MOVE_PROBABILITY: 0.2,
         MERGE_DISTANCE_THRESHOLD: 1,
         SPAWN_TO_PLAYER_DISTANCE_THRESHOLD: 3,
         MAX_STUFF_ON_AREA: 3,
-        STUFF_SPAWN_PROBABILITY: 0.01
+        STUFF_SPAWN_PROBABILITY: 0.0
       };
 
       const FEATURES = {
@@ -104,6 +106,7 @@
       let gameState = {
         health: MECHANIC.MAX_HEALTH,
         score: 0,
+        level: MECHANIC.MIN_LEVEL,
         stuffList: [],
         player: { x: AREA_SIZE.WIDTH / 2, y: AREA_SIZE.HEIGHT / 2 },
         enemiesList: [],
@@ -122,7 +125,8 @@
           probablySpawnEnemy,
           regainEnergy,
           increaseScore,
-          spawnStuff
+          spawnStuff,
+          updateMechanic
         ),
         setGameState
       );
@@ -266,6 +270,23 @@
             }
           ]
         };
+      }
+
+      function updateMechanic(gameState) {
+        const { score, level } = gameState;
+        const actualLevel = Math.max(
+          MECHANIC.MIN_LEVEL,
+          Math.min(MECHANIC.MAX_LEVEL, Math.floor(Math.log10(score + 1)))
+        );
+        if (level === actualLevel) {
+          return gameState;
+        }
+        MECHANIC.GRANT_SCORE_PROBABILITY += 0.2;
+        MECHANIC.ENEMY_MOVE_PROBABILITY += 0.1;
+        MECHANIC.ENEMY_SPAWN_PROBABILITY += 0.15;
+        MECHANIC.STRIKE_ENERGY_COST -= 1;
+        MECHANIC.STUFF_SPAWN_PROBABILITY += 0.01;
+        return { ...gameState, level: actualLevel };
       }
 
       function eatPlayerIfPossible(gameState) {
@@ -539,6 +560,7 @@
         enemiesList,
         energy,
         health,
+        level,
         isEaten,
         isGameStarted,
         isGameOver,
@@ -551,7 +573,7 @@
           rows.push(renderRow(areaY, gameState));
         }
         const stats = isGameStarted
-          ? `Подбито ${statistic.shootCount} врагов. Здоровье ${health}. Энергия лазерной пушки ${energy}. Очки ${score}`
+          ? `Уровень ${level}. Подбито ${statistic.shootCount} врагов. Здоровье ${health}. Энергия лазерной пушки ${energy}. Очки ${score}`
           : "Для начала нажмите пробел";
         window.stats.innerHTML = stats;
         if (!isGameOver) {
